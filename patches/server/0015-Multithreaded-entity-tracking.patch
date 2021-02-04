@@ -23,12 +23,12 @@ index c39c9929a251b41ab60e1509b4e6c90d0825dc0c..863ca9f6cf6ea065f5f8627e327eae5d
 +
  }
 diff --git a/src/main/java/net/minecraft/server/Chunk.java b/src/main/java/net/minecraft/server/Chunk.java
-index 8b7fd21e6b366196fbc9cd44a340335c4cf9205f..ae61d53ba35ca224c9b0f5ea9b3875434b27cf4b 100644
+index 7b8036840dcca16904b3063c209d5ff10ab8a6af..bc4fe8ee251b02548d713ab88e329a266cd7e626 100644
 --- a/src/main/java/net/minecraft/server/Chunk.java
 +++ b/src/main/java/net/minecraft/server/Chunk.java
 @@ -64,6 +64,21 @@ public class Chunk implements IChunkAccess {
      }
-     // AirplaneL end
+     // Airplane end
  
 +    // Airplane start - entity tracker runnable
 +    // prevents needing to allocate new lambda in processTrackQueue
