@@ -5,20 +5,22 @@ Subject: [PATCH] Multithreaded entity tracking
 
 
 diff --git a/src/main/java/gg/airplane/AirplaneConfig.java b/src/main/java/gg/airplane/AirplaneConfig.java
-index c39c9929a251b41ab60e1509b4e6c90d0825dc0c..863ca9f6cf6ea065f5f8627e327eae5d762fac95 100644
+index c39c9929a251b41ab60e1509b4e6c90d0825dc0c..0495cd90cde288c31bdbb00b1bb64683950c131f 100644
 --- a/src/main/java/gg/airplane/AirplaneConfig.java
 +++ b/src/main/java/gg/airplane/AirplaneConfig.java
-@@ -68,4 +68,13 @@ public class AirplaneConfig {
+@@ -68,4 +68,15 @@ public class AirplaneConfig {
          dynamicHoglinBehavior = manual.get("behavior-activation.hoglin", dynamicHoglinBehavior);
      }
  
 +
-+    public static boolean multithreadedEntityTracker = true;
++    public static boolean multithreadedEntityTracker = false;
 +
 +    private static void entityTracker() {
 +        manual.setComment("entity-tracker", "Options to improve the performance of tracked entities");
 +
-+        multithreadedEntityTracker = manual.get("entity-tracker.multithreaded", multithreadedEntityTracker);
++        multithreadedEntityTracker = manual.get("entity-tracker.multithreaded", multithreadedEntityTracker,
++          "This can break plugins that listen to packets sent from",
++            "the entity tracker. Ensure you have compatible plugins.");
 +    }
 +
  }
@@ -123,7 +125,7 @@ index f322dccd834ff56b99f8796309709b5b6ac01456..4c845a8d57d9a602e41b2808e867adec
  
              if (!cancelled) {
 diff --git a/src/main/java/net/minecraft/server/PlayerChunkMap.java b/src/main/java/net/minecraft/server/PlayerChunkMap.java
-index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728dea1bf62ac 100644
+index a42571cfd2c9c80df27e59db832cb64c2a64e141..b24b4cd581267e511631611e5db46ac0e1d334ed 100644
 --- a/src/main/java/net/minecraft/server/PlayerChunkMap.java
 +++ b/src/main/java/net/minecraft/server/PlayerChunkMap.java
 @@ -10,6 +10,7 @@ import com.google.common.collect.Queues;
@@ -134,12 +136,12 @@ index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728de
  import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
  import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
  import it.unimi.dsi.fastutil.longs.Long2ByteMap;
-@@ -2118,11 +2119,34 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -2119,11 +2120,38 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
          entity.tracker = null; // Paper - We're no longer tracked
      }
  
 +    private static final org.bukkit.craftbukkit.util.UnsafeList<Runnable> trackQueue = new org.bukkit.craftbukkit.util.UnsafeList<>();
-+    private static int trackQueueUses = 0;
++    private int trackQueueUses = 0;
 +
      // Paper start - optimised tracker
      private final void processTrackQueue() {
@@ -158,9 +160,13 @@ index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728de
 +                    iterator.finishedIterating();
 +                }
 +                trackQueue.parallelStream().forEach(Runnable::run);
-+                if (++trackQueueUses > 1000) { // 16 seconds with 3 worlds
-+                    trackQueueUses = 0;
-+                    trackQueue.completeReset(); // completely wipe, allows chunks at tail ends to GC
++                if (++this.trackQueueUses > 20 * 15) { // every 15s
++                    if (trackQueue.getRawDataArray().length > this.world.getChunkProvider().entityTickingChunks.size() << 2) { // reset array if chunk count dramatically different
++                        trackQueue.clear();
++                    } else {
++                        trackQueue.completeReset(); // completely wipe, allows chunks at tail end of unsafelist to GC
++                    }
++                    this.trackQueueUses = 0;
 +                } else {
 +                    trackQueue.setSize(0); // partially wipe, can contain references to chunks even after it's done
 +                }
@@ -169,7 +175,7 @@ index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728de
              try {
              while (iterator.hasNext()) {
                  Chunk chunk = iterator.next();
-@@ -2139,6 +2163,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
+@@ -2140,6 +2168,7 @@ public class PlayerChunkMap extends IChunkLoader implements PlayerChunk.d {
              } finally {
                  iterator.finishedIterating();
              }
@@ -177,7 +183,7 @@ index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728de
          } finally {
              this.world.timings.tracker1.stopTiming();
          }
-@@ -2383,7 +2408,7 @@ Sections go from 0..16. Now whenever a section is not empty, it can potentially
+@@ -2384,7 +2413,7 @@ Sections go from 0..16. Now whenever a section is not empty, it can potentially
      public class EntityTracker {
  
          final EntityTrackerEntry trackerEntry; // Paper - private -> package private
@@ -186,7 +192,7 @@ index 16779ffa00caf32752170700e1d88092802fa932..79640f65ae05e696df9d44dd641728de
          private final int trackingDistance;
          private SectionPosition e;
          // Paper start
-@@ -2482,7 +2507,7 @@ Sections go from 0..16. Now whenever a section is not empty, it can potentially
+@@ -2483,7 +2512,7 @@ Sections go from 0..16. Now whenever a section is not empty, it can potentially
          }
  
          public void updatePlayer(EntityPlayer entityplayer) {
